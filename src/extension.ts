@@ -2,11 +2,25 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import { getGitRoot, getRemoteUrl, remoteToWebUrl } from "./gitRemote";
 
+function statusBarIconForWebUrl(url: string): string {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    if (host === "github.com" || host.endsWith(".github.com")) {
+      return "$(github)";
+    }
+    if (host.includes("gitlab")) {
+      return "$(repo)";
+    }
+  } catch {
+    /* invalid URL — fall through */
+  }
+  return "$(link-external)";
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   let lastUrl: string | undefined;
 
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBar.text = "$(link-external) Repo";
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   statusBar.command = "openRepo.openRemote";
 
   function pickWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
@@ -63,6 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     lastUrl = url;
+    statusBar.text = statusBarIconForWebUrl(url);
     statusBar.tooltip = `Open repository: ${url}`;
     statusBar.show();
   }
