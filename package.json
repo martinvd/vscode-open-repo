@@ -1,20 +1,20 @@
 {
   "name": "vscode-open-repo",
   "displayName": "Open Repo",
-  "description": "VS Code extension starter",
+  "description": "Open the workspace Git remote on GitHub or GitLab in your browser from the status bar.",
   "version": "0.0.1",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": ["Other"],
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "openRepo.helloWorld",
-        "title": "Open Repo: Hello World"
+        "command": "openRepo.openRemote",
+        "title": "Open Repo: Open remote repository in browser"
       }
     ]
   },
