@@ -1,11 +1,19 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { getGitRoot, getRemoteUrl, remoteToWebUrl } from "./gitRemote";
+import { getGitRoot, getRemoteUrl, isGithubHost, remoteToWebUrl } from "./gitRemote";
 
-function statusBarIconForWebUrl(url: string): string {
+const CONFIG_SECTION = "openRepo";
+const GITHUB_ENTERPRISE_HOSTS_KEY = "githubEnterpriseHosts";
+
+function githubEnterpriseHostsFromConfig(): string[] {
+  const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get<string[]>(GITHUB_ENTERPRISE_HOSTS_KEY);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function statusBarIconForWebUrl(url: string, enterpriseHosts: readonly string[]): string {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    if (host === "github.com" || host.endsWith(".github.com")) {
+    if (isGithubHost(host, enterpriseHosts)) {
       return "$(github)";
     }
     if (host.includes("gitlab")) {
@@ -69,7 +77,8 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
 
-    const url = remoteToWebUrl(remote);
+    const enterpriseHosts = githubEnterpriseHostsFromConfig();
+    const url = remoteToWebUrl(remote, enterpriseHosts);
     if (!url) {
       lastUrl = undefined;
       statusBar.hide();
@@ -77,7 +86,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     lastUrl = url;
-    statusBar.text = statusBarIconForWebUrl(url);
+    statusBar.text = statusBarIconForWebUrl(url, enterpriseHosts);
     statusBar.tooltip = `Open repository: ${url}`;
     statusBar.show();
   }
@@ -89,6 +98,9 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     vscode.workspace.onDidChangeWorkspaceFolders(() => void refresh()),
     vscode.window.onDidChangeActiveTextEditor(() => void refresh()),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration(`${CONFIG_SECTION}.${GITHUB_ENTERPRISE_HOSTS_KEY}`)) void refresh();
+    }),
   );
 
   void refresh();

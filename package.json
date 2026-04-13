@@ -11,6 +11,20 @@
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Open Repo",
+      "properties": {
+        "openRepo.githubEnterpriseHosts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9.-]+$"
+          },
+          "default": [],
+          "description": "Extra hostnames treated as GitHub (GitHub Enterprise Server), e.g. git.company.com. github.com, *.github.com, and github.* are recognized by default."
+        }
+      }
+    },
     "commands": [
       {
         "command": "openRepo.openRemote",
