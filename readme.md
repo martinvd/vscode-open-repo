@@ -1,3 +1,3 @@
 # vscode-open-repo
 
-VS Code extension that opens the current workspace's repository on GitHub or GitLab.
+> VS Code extension that opens the current repo on GitHub or GitLab
