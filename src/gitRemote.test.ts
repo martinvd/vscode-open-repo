@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { isGithubHost, remoteToWebUrl } from "./gitRemote";
+import { gitExecutableFromConfig, isGithubHost, remoteToWebUrl } from "./gitRemote";
+
+describe("gitExecutableFromConfig", () => {
+  test("uses git.path string or first non-empty array entry", () => {
+    expect(gitExecutableFromConfig(undefined)).toBe("git");
+    expect(gitExecutableFromConfig("")).toBe("git");
+    expect(gitExecutableFromConfig("/opt/homebrew/bin/git")).toBe("/opt/homebrew/bin/git");
+    expect(gitExecutableFromConfig(["", "  /usr/bin/git  "])).toBe("/usr/bin/git");
+  });
+});
 
 describe("isGithubHost", () => {
   test("github.com and www", () => {

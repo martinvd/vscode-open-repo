@@ -22,6 +22,11 @@
           },
           "default": [],
           "description": "Extra hostnames treated as GitHub (GitHub Enterprise Server), e.g. git.company.com. github.com, *.github.com, *.ghe.com, and github.* are recognized by default."
+        },
+        "openRepo.statusBarPriority": {
+          "type": "number",
+          "default": 9999,
+          "description": "Left status bar order. Higher values sit further left. Built-in Git uses 10000, so the default 9999 places this icon just to the right of the branch. Increase to move left; decrease if another extension sits on top of it."
         }
       }
     },

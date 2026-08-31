@@ -3,9 +3,20 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-async function gitOutput(cwd: string, args: string[]): Promise<string | undefined> {
+/** Resolves `git.path` (string or string[]) from the Git extension; otherwise `"git"`. */
+export function gitExecutableFromConfig(gitPath: unknown): string {
+  if (typeof gitPath === "string" && gitPath.trim()) return gitPath.trim();
+  if (Array.isArray(gitPath)) {
+    for (const entry of gitPath) {
+      if (typeof entry === "string" && entry.trim()) return entry.trim();
+    }
+  }
+  return "git";
+}
+
+async function gitOutput(cwd: string, args: string[], gitPath: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("git", ["-C", cwd, ...args], {
+    const { stdout } = await execFileAsync(gitPath, ["-C", cwd, ...args], {
       encoding: "utf8",
       maxBuffer: 1024 * 1024,
     });
@@ -16,22 +27,22 @@ async function gitOutput(cwd: string, args: string[]): Promise<string | undefine
   }
 }
 
-export async function getGitRoot(workspaceFolder: string): Promise<string | undefined> {
-  return gitOutput(workspaceFolder, ["rev-parse", "--show-toplevel"]);
+export async function getGitRoot(workspaceFolder: string, gitPath = "git"): Promise<string | undefined> {
+  return gitOutput(workspaceFolder, ["rev-parse", "--show-toplevel"], gitPath);
 }
 
 /** Uses `origin` if present, otherwise the first remote from `git remote`. */
-export async function getRemoteUrl(root: string): Promise<string | undefined> {
-  const origin = await gitOutput(root, ["remote", "get-url", "origin"]);
+export async function getRemoteUrl(root: string, gitPath = "git"): Promise<string | undefined> {
+  const origin = await gitOutput(root, ["remote", "get-url", "origin"], gitPath);
   if (origin) return origin;
-  const list = await gitOutput(root, ["remote"]);
+  const list = await gitOutput(root, ["remote"], gitPath);
   if (!list) return undefined;
   const first = list
     .split("\n")
     .map((l) => l.trim())
     .find(Boolean);
   if (!first) return undefined;
-  return gitOutput(root, ["remote", "get-url", first]);
+  return gitOutput(root, ["remote", "get-url", first], gitPath);
 }
 
 function stripGitSuffix(p: string): string {
