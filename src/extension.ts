@@ -14,6 +14,7 @@ const STATUS_BAR_PRIORITY_KEY = "statusBarPriority";
 /** Built-in Git SCM entries use 10000 (left). Sit immediately to their right. */
 const DEFAULT_STATUS_BAR_PRIORITY = 9999;
 const STATUS_BAR_ITEM_ID = "openRepo.remote";
+const OUTPUT_CHANNEL_NAME = "Open Repo";
 
 function githubEnterpriseHostsFromConfig(): string[] {
   const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get<string[]>(GITHUB_ENTERPRISE_HOSTS_KEY);
@@ -56,10 +57,29 @@ function createRemoteStatusBarItem(priority: number): vscode.StatusBarItem {
   return item;
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  let lastUrl: string | undefined;
-  const log = vscode.window.createOutputChannel("Open Repo", { log: true });
+function writeLog(channel: vscode.OutputChannel, message: string): void {
+  channel.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
 
+export function activate(context: vscode.ExtensionContext): void {
+  // Regular output channel (not { log: true }): always listed in the Output
+  // dropdown, and messages are not filtered by log level. Write immediately so
+  // the channel is not omitted as empty.
+  const output = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
+  context.subscriptions.push(output);
+  writeLog(output, `Activated (${context.extension.id} ${context.extension.packageJSON.version})`);
+
+  try {
+    activateBody(context, output);
+  } catch (err) {
+    const message = err instanceof Error ? err.stack ?? err.message : String(err);
+    writeLog(output, `Activation failed: ${message}`);
+    void vscode.window.showErrorMessage(`Open Repo failed to activate: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function activateBody(context: vscode.ExtensionContext, output: vscode.OutputChannel): void {
+  let lastUrl: string | undefined;
   let statusBar = createRemoteStatusBarItem(statusBarPriorityFromConfig());
 
   function pickWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
@@ -89,7 +109,7 @@ export function activate(context: vscode.ExtensionContext): void {
   function hide(reason: string): void {
     lastUrl = undefined;
     statusBar.hide();
-    log.debug(`Status bar hidden: ${reason}`);
+    writeLog(output, `Status bar hidden: ${reason}`);
   }
 
   async function refresh(): Promise<void> {
@@ -123,15 +143,22 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar.text = statusBarIconForWebUrl(url, enterpriseHosts);
     statusBar.tooltip = `Open repository: ${url}`;
     statusBar.show();
-    log.debug(`Status bar shown: ${url}`);
+    writeLog(output, `Status bar shown: ${url}`);
   }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("openRepo.openRemote", () => {
-      if (lastUrl) void vscode.env.openExternal(vscode.Uri.parse(lastUrl));
+      if (lastUrl) {
+        void vscode.env.openExternal(vscode.Uri.parse(lastUrl));
+        return;
+      }
+      void vscode.window.showWarningMessage("Open Repo has no repository URL yet. Check the Open Repo output channel for why.");
+      output.show(true);
+    }),
+    vscode.commands.registerCommand("openRepo.showOutput", () => {
+      output.show(true);
     }),
     statusBar,
-    log,
     vscode.workspace.onDidChangeWorkspaceFolders(() => void refresh()),
     vscode.window.onDidChangeActiveTextEditor(() => void refresh()),
     vscode.workspace.onDidChangeConfiguration((e) => {

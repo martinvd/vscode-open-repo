@@ -2,7 +2,7 @@
   "name": "vscode-open-repo",
   "displayName": "Open Repo",
   "description": "Open the workspace Git remote on GitHub or GitLab in your browser from the status bar.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publisher": "local",
   "engines": {
     "vscode": "^1.85.0"
@@ -10,6 +10,16 @@
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./dist/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Reads the git remote URL and opens it in a browser."
+    },
+    "virtualWorkspaces": {
+      "supported": "limited",
+      "description": "Needs a local git working copy to resolve the remote URL."
+    }
+  },
   "contributes": {
     "configuration": {
       "title": "Open Repo",
@@ -34,6 +44,10 @@
       {
         "command": "openRepo.openRemote",
         "title": "Open Repo: Open remote repository in browser"
+      },
+      {
+        "command": "openRepo.showOutput",
+        "title": "Open Repo: Show Output"
       }
     ]
   },
