@@ -1,11 +1,39 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { getGitRoot, getRemoteUrl, remoteToWebUrl } from "./gitRemote";
+import {
+  getGitRoot,
+  getRemoteUrl,
+  gitExecutableFromConfig,
+  isGithubHost,
+  remoteToWebUrl,
+} from "./gitRemote";
 
-function statusBarIconForWebUrl(url: string): string {
+const CONFIG_SECTION = "openRepo";
+const GITHUB_ENTERPRISE_HOSTS_KEY = "githubEnterpriseHosts";
+const STATUS_BAR_PRIORITY_KEY = "statusBarPriority";
+/** Built-in Git SCM entries use 10000 (left). Sit immediately to their right. */
+const DEFAULT_STATUS_BAR_PRIORITY = 9999;
+const STATUS_BAR_ITEM_ID = "openRepo.remote";
+const OUTPUT_CHANNEL_NAME = "Open Repo";
+
+function githubEnterpriseHostsFromConfig(): string[] {
+  const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get<string[]>(GITHUB_ENTERPRISE_HOSTS_KEY);
+  return Array.isArray(raw) ? raw : [];
+}
+
+function statusBarPriorityFromConfig(): number {
+  const raw = vscode.workspace.getConfiguration(CONFIG_SECTION).get<number>(STATUS_BAR_PRIORITY_KEY);
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULT_STATUS_BAR_PRIORITY;
+}
+
+function gitPathFromConfig(): string {
+  return gitExecutableFromConfig(vscode.workspace.getConfiguration("git").get("path"));
+}
+
+function statusBarIconForWebUrl(url: string, enterpriseHosts: readonly string[]): string {
   try {
     const host = new URL(url).hostname.toLowerCase();
-    if (host === "github.com" || host.endsWith(".github.com")) {
+    if (isGithubHost(host, enterpriseHosts)) {
       return "$(github)";
     }
     if (host.includes("gitlab")) {
@@ -17,11 +45,42 @@ function statusBarIconForWebUrl(url: string): string {
   return "$(link-external)";
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  let lastUrl: string | undefined;
+function createRemoteStatusBarItem(priority: number): vscode.StatusBarItem {
+  const item = vscode.window.createStatusBarItem(
+    STATUS_BAR_ITEM_ID,
+    vscode.StatusBarAlignment.Left,
+    priority,
+  );
+  item.name = "Open Repo";
+  item.command = "openRepo.openRemote";
+  item.accessibilityInformation = { label: "Open repository in browser" };
+  return item;
+}
 
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-  statusBar.command = "openRepo.openRemote";
+function writeLog(channel: vscode.OutputChannel, message: string): void {
+  channel.appendLine(`[${new Date().toISOString()}] ${message}`);
+}
+
+export function activate(context: vscode.ExtensionContext): void {
+  // Regular output channel (not { log: true }): always listed in the Output
+  // dropdown, and messages are not filtered by log level. Write immediately so
+  // the channel is not omitted as empty.
+  const output = vscode.window.createOutputChannel(OUTPUT_CHANNEL_NAME);
+  context.subscriptions.push(output);
+  writeLog(output, `Activated (${context.extension.id} ${context.extension.packageJSON.version})`);
+
+  try {
+    activateBody(context, output);
+  } catch (err) {
+    const message = err instanceof Error ? err.stack ?? err.message : String(err);
+    writeLog(output, `Activation failed: ${message}`);
+    void vscode.window.showErrorMessage(`Open Repo failed to activate: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function activateBody(context: vscode.ExtensionContext, output: vscode.OutputChannel): void {
+  let lastUrl: string | undefined;
+  let statusBar = createRemoteStatusBarItem(statusBarPriorityFromConfig());
 
   function pickWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
     const editor = vscode.window.activeTextEditor;
@@ -47,48 +106,74 @@ export function activate(context: vscode.ExtensionContext): void {
     return folders[0];
   }
 
+  function hide(reason: string): void {
+    lastUrl = undefined;
+    statusBar.hide();
+    writeLog(output, `Status bar hidden: ${reason}`);
+  }
+
   async function refresh(): Promise<void> {
     const folder = pickWorkspaceFolder();
     if (!folder) {
-      lastUrl = undefined;
-      statusBar.hide();
+      hide("no workspace folder");
       return;
     }
 
-    const root = await getGitRoot(folder.uri.fsPath);
+    const gitPath = gitPathFromConfig();
+    const root = await getGitRoot(folder.uri.fsPath, gitPath);
     if (!root) {
-      lastUrl = undefined;
-      statusBar.hide();
+      hide(`not a git repository (or git not found: ${gitPath})`);
       return;
     }
 
-    const remote = await getRemoteUrl(root);
+    const remote = await getRemoteUrl(root, gitPath);
     if (!remote) {
-      lastUrl = undefined;
-      statusBar.hide();
+      hide("no git remote");
       return;
     }
 
-    const url = remoteToWebUrl(remote);
+    const enterpriseHosts = githubEnterpriseHostsFromConfig();
+    const url = remoteToWebUrl(remote, enterpriseHosts);
     if (!url) {
-      lastUrl = undefined;
-      statusBar.hide();
+      hide(`unsupported remote: ${remote}`);
       return;
     }
 
     lastUrl = url;
-    statusBar.text = statusBarIconForWebUrl(url);
+    statusBar.text = statusBarIconForWebUrl(url, enterpriseHosts);
     statusBar.tooltip = `Open repository: ${url}`;
     statusBar.show();
+    writeLog(output, `Status bar shown: ${url}`);
   }
 
   context.subscriptions.push(
     vscode.commands.registerCommand("openRepo.openRemote", () => {
-      if (lastUrl) void vscode.env.openExternal(vscode.Uri.parse(lastUrl));
+      if (lastUrl) {
+        void vscode.env.openExternal(vscode.Uri.parse(lastUrl));
+        return;
+      }
+      void vscode.window.showWarningMessage("Open Repo has no repository URL yet. Check the Open Repo output channel for why.");
+      output.show(true);
+    }),
+    vscode.commands.registerCommand("openRepo.showOutput", () => {
+      output.show(true);
     }),
     statusBar,
     vscode.workspace.onDidChangeWorkspaceFolders(() => void refresh()),
     vscode.window.onDidChangeActiveTextEditor(() => void refresh()),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      const hostsChanged = e.affectsConfiguration(`${CONFIG_SECTION}.${GITHUB_ENTERPRISE_HOSTS_KEY}`);
+      const gitPathChanged = e.affectsConfiguration("git.path");
+      const priorityChanged = e.affectsConfiguration(`${CONFIG_SECTION}.${STATUS_BAR_PRIORITY_KEY}`);
+
+      if (priorityChanged) {
+        statusBar.dispose();
+        statusBar = createRemoteStatusBarItem(statusBarPriorityFromConfig());
+        context.subscriptions.push(statusBar);
+      }
+
+      if (hostsChanged || gitPathChanged || priorityChanged) void refresh();
+    }),
   );
 
   void refresh();
