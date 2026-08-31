@@ -38,11 +38,27 @@ function stripGitSuffix(p: string): string {
   return p.replace(/\.git$/i, "") || p;
 }
 
-/** True for github.com, GitHub Enterprise Cloud (`*.github.com`), common GHES hostnames (`github.*`), or configured Enterprise Server hosts. */
+function repoPathFromUrlPathname(pathname: string): string {
+  return stripGitSuffix(pathname.replace(/^\/+/, ""));
+}
+
+/** HTTPS origin for a browser URL. SSH ports must not be copied here. */
+function httpsOrigin(hostname: string, port?: string): string {
+  if (port && port !== "443") {
+    return `https://${hostname}:${port}`;
+  }
+  return `https://${hostname}`;
+}
+
+/**
+ * True for github.com, GitHub Enterprise Cloud (`*.github.com`, `*.ghe.com`),
+ * common GHES hostnames (`github.*`), or configured Enterprise Server hosts.
+ */
 export function isGithubHost(hostname: string, enterpriseHosts: readonly string[] = []): boolean {
   const h = hostname.toLowerCase();
   if (h === "github.com" || h === "www.github.com") return true;
   if (h.endsWith(".github.com")) return true;
+  if (h === "ghe.com" || h.endsWith(".ghe.com")) return true;
   if (h.startsWith("github.")) return true;
   for (const entry of enterpriseHosts) {
     const x = entry.trim().toLowerCase();
@@ -59,6 +75,19 @@ function isSupportedHost(hostname: string, githubEnterpriseHosts: readonly strin
   return false;
 }
 
+function webUrlFromParsed(
+  hostname: string,
+  pathname: string,
+  githubEnterpriseHosts: readonly string[],
+  httpsPort?: string,
+): string | undefined {
+  const host = hostname.toLowerCase();
+  if (!host || !isSupportedHost(host, githubEnterpriseHosts)) return undefined;
+  const repoPath = repoPathFromUrlPathname(pathname);
+  if (!repoPath) return undefined;
+  return `${httpsOrigin(host, httpsPort)}/${repoPath}`;
+}
+
 /** Converts a git remote URL to an HTTPS repo URL, or `undefined` if unsupported. */
 export function remoteToWebUrl(
   remote: string,
@@ -67,39 +96,29 @@ export function remoteToWebUrl(
   const trimmed = remote.trim();
   if (!trimmed) return undefined;
 
-  const scp = trimmed.match(/^[^@]+@([^:]+):(.+)$/);
+  // Scheme URLs first. `ssh://git@host:port/path` must not be parsed as SCP
+  // (`user@host:path`), which would treat the SSH port as the repo path.
+  if (/^(?:git\+)?https?:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed.replace(/^git\+/i, ""));
+      return webUrlFromParsed(u.hostname, u.pathname, githubEnterpriseHosts, u.port);
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (/^(?:git\+)?ssh:\/\//i.test(trimmed) || /^git:\/\//i.test(trimmed)) {
+    try {
+      const u = new URL(trimmed.replace(/^git\+/i, ""));
+      return webUrlFromParsed(u.hostname, u.pathname, githubEnterpriseHosts);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const scp = trimmed.match(/^[^@\s]+@([^:]+):(.+)$/);
   if (scp) {
-    const host = scp[1].toLowerCase();
-    if (!isSupportedHost(host, githubEnterpriseHosts)) return undefined;
-    let repoPath = scp[2].replace(/^\/+/, "");
-    repoPath = stripGitSuffix(repoPath);
-    return `https://${host}/${repoPath}`;
-  }
-
-  if (trimmed.startsWith("ssh://")) {
-    try {
-      const u = new URL(trimmed);
-      const host = u.hostname.toLowerCase();
-      if (!isSupportedHost(host, githubEnterpriseHosts)) return undefined;
-      let repoPath = u.pathname.replace(/^\/+/, "");
-      repoPath = stripGitSuffix(repoPath);
-      return `https://${host}/${repoPath}`;
-    } catch {
-      return undefined;
-    }
-  }
-
-  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-    try {
-      const u = new URL(trimmed);
-      const host = u.hostname.toLowerCase();
-      if (!isSupportedHost(host, githubEnterpriseHosts)) return undefined;
-      let repoPath = u.pathname.replace(/^\/+/, "");
-      repoPath = stripGitSuffix(repoPath);
-      return `https://${host}/${repoPath}`;
-    } catch {
-      return undefined;
-    }
+    return webUrlFromParsed(scp[1], scp[2], githubEnterpriseHosts);
   }
 
   return undefined;

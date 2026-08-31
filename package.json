@@ -21,7 +21,7 @@
             "pattern": "^[a-zA-Z0-9.-]+$"
           },
           "default": [],
-          "description": "Extra hostnames treated as GitHub (GitHub Enterprise Server), e.g. git.company.com. github.com, *.github.com, and github.* are recognized by default."
+          "description": "Extra hostnames treated as GitHub (GitHub Enterprise Server), e.g. git.company.com. github.com, *.github.com, *.ghe.com, and github.* are recognized by default."
         }
       }
     },
@@ -35,6 +35,7 @@
   "scripts": {
     "compile": "bun esbuild.config.mjs",
     "watch": "bun esbuild.config.mjs --watch",
+    "test": "bun test",
     "vscode:prepublish": "bun esbuild.config.mjs --production",
     "package": "vsce package --no-dependencies"
   },
